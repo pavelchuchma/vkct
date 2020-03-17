@@ -1,5 +1,6 @@
-from openpyxl import load_workbook
 import os
+
+from openpyxl import load_workbook
 
 
 class ResultWriter:
@@ -28,15 +29,12 @@ class ResultWriter:
                 ws.cell(row=row, column=4).value = pr.person.birth_year
 
                 r = pr.race_results[0]
-                if r.position is not None:
-                    ws.cell(row=row, column=5).value = r.position
-                    ws.cell(row=row, column=6).value = r.points
+                self.write_position_and_points(ws.cell(row=row, column=5), ws.cell(row=row, column=6), r)
 
                 for i in range(1, len(pr.race_results)):
                     r = pr.race_results[i]
-                    if r.position is not None:
-                        ws.cell(row=row, column=7 + (i - 1) * 4).value = r.position
-                        ws.cell(row=row, column=8 + (i - 1) * 4).value = r.points
+                    self.write_position_and_points(ws.cell(row=row, column=7 + (i - 1) * 4),
+                                                   ws.cell(row=row, column=8 + (i - 1) * 4), r)
                     if r.sum_points is not None:
                         ws.cell(row=row, column=9 + (i - 1) * 4).value = r.sum_position
                         ws.cell(row=row, column=10 + (i - 1) * 4).value = r.sum_points
@@ -46,6 +44,12 @@ class ResultWriter:
         self.wb.remove_sheet(self.template_sheet)
         self.wb.save(self.outputFileName)
         self.wb.close()
+
+    @staticmethod
+    def write_position_and_points(pos_cell, points_cell, race_result):
+        if race_result.position is not None:
+            pos_cell.value = race_result.position if not race_result.half_points else "%s*" % race_result.position
+            points_cell.value = race_result.points
 
     def prepare_sheet(self, cat_name, line_count):
         ws = self.wb.copy_worksheet(self.template_sheet)
@@ -61,4 +65,3 @@ class ResultWriter:
                 n.alignment = src.alignment.copy()
 
         ws.freeze_panes = ws.cell(row=7, column=5)
-

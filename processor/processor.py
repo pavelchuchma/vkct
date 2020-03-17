@@ -1,8 +1,7 @@
 # coding: utf-8
-#  from openpyxl import Workbook
-from openpyxl import load_workbook
 from collections import namedtuple
-from datetime import date
+
+from openpyxl import load_workbook
 
 from ResultWriter import ResultWriter
 
@@ -29,6 +28,7 @@ class RaceResult:
         self.points = None
         self.sum_points = None
         self.sum_position = None
+        self.half_points = False
 
 
 class PersonalResults:
@@ -45,9 +45,19 @@ class CategorySummaryResults:
         self.personal_results = []
 
 
+class Category:
+    def __init__(self, name, min_age, max_age, inputs, current_year):
+        self.name = name
+        self.min_age = min_age
+        self.max_age = max_age
+        self.inputs = inputs
+        self.results = []
+        self.min_year = current_year - max_age
+        self.max_year = current_year - min_age
+
+
 ParsePosition = namedtuple("ParsePosition", "file sheet row")
 CategoryInput = namedtuple("CategoryInput", "file_name sheet_name first_row name_col team_col birth_year_col pos_col")
-Category = namedtuple("Category", "name min_age max_age inputs results")
 Config = namedtuple("Config", "year categories")
 
 parsePosition = ParsePosition
@@ -69,7 +79,7 @@ def read_results(config):
     for cat in config.categories:
         for i in cat.inputs:
             res = read(i.file_name, i.sheet_name, i.first_row, i.name_col, i.team_col,
-                       i.birth_year_col, i.pos_col)
+                       i.birth_year_col, i.pos_col, cat)
             cat.results.append(res)
 
 
@@ -79,20 +89,27 @@ def extract_summary_results(config):
         cat_res = CategorySummaryResults(cat)
         res_map = {}
         category_sum_results.append(cat_res)
-        race_idx = 0
+        race_result_idx = 0
         for race_results in cat.results:
             for r in race_results:
+                # 2nd race list is half-pointed 1st race
+                half_points = race_result_idx == 1
+                race_idx = 0 if race_result_idx == 0 else race_result_idx - 1
+
                 key = r.person.get_key()
                 pr = res_map.get(key)
                 if pr is None:
-                    res_map[key] = pr = PersonalResults(r.person, len(cat.results))
+                    res_map[key] = pr = PersonalResults(r.person, len(cat.results) - 1)
                 elif pr.person.team is None and pr.person.team is not None:
                     pr.person = Person(pr.person.name, pr.person.team, pr.person.birth_year)
 
-                pr.race_results[race_idx].position = r.position
-                pr.race_results[race_idx].points = compute_points(len(race_results), r.position)
+                rr = pr.race_results[race_idx]
+                rr.position = r.position
 
-            race_idx = race_idx + 1
+                rr.points = compute_points(len(race_results), r.position, half_points)
+                rr.half_points = half_points
+
+            race_result_idx = race_result_idx + 1
         cat_res.personal_results = res_map.values()
     return category_sum_results
 
@@ -101,20 +118,19 @@ point_table = [50, 45, 40, 37, 34, 31, 28, 26, 24, 22, 20, 19, 18, 17, 16, 15, 1
                2, 1]
 
 
-def compute_points(people_count, position):
+def compute_points(people_count, position, half_points):
     if position == 'DNF':
         return 0
 
-    bonus = min(people_count, 30)
-    p = max(bonus - (position - 1), 0)
-    if position - 1 < len(point_table):
-        p = p + point_table[position - 1]
+    if half_points:
+        p = max(0, 26 - position)
+    else:
+        bonus = min(people_count, 30)
+        p = max(bonus - (position - 1), 0)
+        if position - 1 < len(point_table):
+            p = p + point_table[position - 1]
+
     return p
-
-
-#
-# def get_sort_key(pr):
-#     return pr.race_results[2].sum_points
 
 
 def complete_summary_results(category_sum_results):
@@ -160,7 +176,7 @@ def load_config(config_file):
                             ws.cell(row=row, column=2).value,
                             ws.cell(row=row, column=3).value,
                             load_category_input_config(wb, cat_name),
-                            [])
+                            current_year)
         categories.append(category)
         row = row + 1
 
@@ -192,7 +208,7 @@ def get_column_index(col_name):
     return ord(col_name[0]) - ord('A') + 1
 
 
-def read(file_name, sheet_name, first_row, name_col, team_col, birth_year_col, pos_col):
+def read(file_name, sheet_name, first_row, name_col, team_col, birth_year_col, pos_col, category):
     wb = load_workbook(file_name)
     ws = wb.get_sheet_by_name(sheet_name)
 
@@ -207,7 +223,8 @@ def read(file_name, sheet_name, first_row, name_col, team_col, birth_year_col, p
             ws.cell(row=row, column=name_col).value,
             ws.cell(row=row, column=team_col).value,
             ws.cell(row=row, column=birth_year_col).value,
-            ws.cell(row=row, column=pos_col).value)
+            ws.cell(row=row, column=pos_col).value,
+            category)
 
         if line is not None:
             lines.append(line)
@@ -215,25 +232,33 @@ def read(file_name, sheet_name, first_row, name_col, team_col, birth_year_col, p
     return lines
 
 
-def create_normalized_result_line(name, team, birtyear, pos):
+def create_normalized_result_line(name, team, birth_year, pos, category):
     n_name = normalize_name(name)
-    # if n_name != name:
-    #     info("Normalized name: '%s' -> '%s'" % (name, n_name))
 
-    if not isinstance(birtyear, long):
-        warning("Birth year '%s' of %s is not a number" % (birtyear, name))
-    elif birtyear < date.today().year - 80 or birtyear > date.today().year - 1:
-        warning("Birth year %d is strange" % birtyear)
+    birth_year = to_long(birth_year)
+    if not isinstance(birth_year, long):
+        warning("Birth year '%s' of %s is not a number" % (birth_year, name))
+    elif birth_year < category.min_year or birth_year > category.max_year:
+        warning("Birth year %d looks is out of range category %s (%d-%d)"
+                % (birth_year, category.name, category.min_year, category.max_year))
 
-    n_pos = pos
-    if isinstance(n_pos, unicode) and n_pos[-1] == '.' and n_pos[:-1].isdecimal():
-        # replace u"1." -> L1
-        n_pos = long(n_pos[:-1])
+    n_pos = to_long(pos)
     if not isinstance(n_pos, long):
         info("Position '%s' is not a number! DNF '%s'!" % (n_pos, n_name))
         n_pos = 'DNF'
 
-    return ResultLine(Person(n_name, team, birtyear), n_pos)
+    return ResultLine(Person(n_name, team, birth_year), n_pos)
+
+
+def to_long(n):
+    if isinstance(n, long):
+        return n
+    if isinstance(n, unicode):
+        if n.isdecimal():
+            return long(n)
+        if len(n) > 1 and n[-1] == '.' and n[:-1].isdecimal():
+            return long(n[:-1])
+    return n
 
 
 def normalize_name(src):
