@@ -136,7 +136,7 @@ point_table = [50, 45, 40, 37, 34, 31, 28, 26, 24, 22, 20, 19, 18, 17, 16, 15, 1
 
 
 def compute_points(people_count, position, half_points, count_positions):
-    if position == 'DNF':
+    if position in DNF_ACRONYMS:
         return 0
 
     # nejmensi kategorie jen bod za ucast
@@ -223,7 +223,7 @@ def load_category_input_config(wb, category_name):
         team_col = get_column_index(ws.cell(row=row, column=6).value)
         birth_year_col = get_column_index(ws.cell(row=row, column=7).value)
         pos_col = get_column_index(ws.cell(row=row, column=8).value)
-        is_alternative = ws.cell(row=row, column=8).value == 1
+        is_alternative = ws.cell(row=row, column=9).value == 1
 
         input_configs.append(CategoryInput(
             file_name, sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col, is_alternative
@@ -233,6 +233,8 @@ def load_category_input_config(wb, category_name):
 
 
 def get_column_index(col_name):
+    if not col_name:
+        return None
     return ord(col_name[0]) - ord('A') + 1
 
 
@@ -285,16 +287,17 @@ def create_normalized_result_line(name, team, birth_year, approved_birth_year, p
         warning("Birth year '%s' of %s is not a number" % (birth_year, name))
     elif birth_year < category.min_year or birth_year > category.max_year:
         if not approved_birth_year:
-            warning("Birth year %d looks is out of range category %s (%d-%d)"
-                    % (birth_year, category.name, category.min_year, category.max_year))
-        # else:
-        #     info("Birth year %d looks is out of range category %s (%d-%d)"
-        #          % (birth_year, category.name, category.min_year, category.max_year))
+            if is_alternative:
+                # info("Alternative result of '%s' (%d) is out of category age range %s (%d-%d). Skipping."
+                #      % (name, birth_year, category.name, category.min_year, category.max_year))
+                return None
+            else:
+                warning("Person '%s' (%d) is out of category age range %s (%d-%d)"
+                        % (name, birth_year, category.name, category.min_year, category.max_year))
 
     n_pos = to_long(pos)
-    if not isinstance(n_pos, long):
-        if n_pos != 'DNF':
-            info("Position '%s' is not a number! DNF '%s'!" % (n_pos, n_name))
+    if not isinstance(n_pos, long) and n_pos not in DNF_ACRONYMS:
+        info("Position '%s' is not a number! DNF '%s'!" % (n_pos, n_name))
         n_pos = 'DNF'
 
     return ResultLine(Person(n_name, team, birth_year), n_pos, is_alternative)
@@ -319,6 +322,10 @@ def normalize_name(src):
         if n1 in first_names and n2 not in first_names:
             return "%s %s" % (n1, n2)
         if n2 in first_names and n1 not in first_names:
+            return "%s %s" % (n2, n1)
+        if "%s_%s" % (n1, n2) in first_names:
+            return "%s %s" % (n1, n2)
+        if "%s_%s" % (n2, n1) in first_names:
             return "%s %s" % (n2, n1)
         warning("Unable to detect first and second name: '%s'" % src)
         return src
@@ -357,6 +364,8 @@ def load_first_names():
         res.add(l.decode('utf-8'))
     return res
 
+
+DNF_ACRONYMS = ['DNF', 'DNP', 'DNS']
 
 first_names = load_first_names()
 
