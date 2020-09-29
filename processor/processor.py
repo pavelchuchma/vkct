@@ -1,5 +1,6 @@
 # coding: utf-8
 from collections import namedtuple
+import difflib
 
 from openpyxl import load_workbook
 
@@ -71,6 +72,7 @@ class Category:
             return u'%s (%s a starší)' % (self.name, self.max_year)
         return u'%s (%s a %s)' % (self.name, self.min_year, self.max_year)
 
+
 ParsePosition = namedtuple("ParsePosition", "file, sheet, row")
 CategoryInput = namedtuple("CategoryInput",
                            "file_name sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col, is_alternative")
@@ -86,9 +88,34 @@ def main():
     category_sum_results = extract_summary_results(config)
     complete_summary_results(category_sum_results)
 
+    check_names(category_sum_results)
     writer = ResultWriter(config, category_sum_results)
     writer.write()
     pass
+
+
+def check_names(category_sum_results):
+    for cat_results in category_sum_results:
+        for i in range(len(cat_results.personal_results)):
+            for j in range(i+1,len(cat_results.personal_results)):
+                pi = cat_results.personal_results[i]
+                pj = cat_results.personal_results[j]
+                ratio = difflib.SequenceMatcher(a=pi.person.name, b=pj.person.name).ratio()
+                if ratio > 0.8:
+                    warning("Similar names in category '%s': '%s(%d) [%s]' ~ '%s(%d) [%s]' (%f)"
+                            % (cat_results.category.name,
+                               pi.person.name, pi.person.birth_year, get_race_index_list(pi),
+                               pj.person.name, pj.person.birth_year, get_race_index_list(pj), ratio))
+                pass
+        pass
+
+
+def get_race_index_list(personal_results):
+    result = []
+    for i in range(len(personal_results.race_results)):
+        if personal_results.race_results[i].position is not None:
+            result.append(str(i + 1))
+    return ', '.join(result)
 
 
 def read_results(config):
@@ -238,7 +265,8 @@ def get_column_index(col_name):
     return ord(col_name[0]) - ord('A') + 1
 
 
-def read_result_sheet(file_name, sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col, is_alternative,
+def read_result_sheet(file_name, sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col,
+                      is_alternative,
                       category):
     wb = load_workbook(file_name)
     try:
@@ -272,6 +300,8 @@ def read_result_sheet(file_name, sheet_name, first_row, name_col, name2_col, tea
         if line is not None:
             lines.append(line)
         row = row + 1
+
+    parsePosition.file = None
     return lines
 
 
@@ -355,7 +385,10 @@ def error(msg):
 
 
 def message(prefix, msg):
-    print("%s%s @%s[%s]:%d" % (prefix, msg, parsePosition.file, parsePosition.sheet, parsePosition.row))
+    if parsePosition.file:
+        print("%s%s @%s[%s]:%d" % (prefix, msg, parsePosition.file, parsePosition.sheet, parsePosition.row))
+    else:
+        print("%s%s" % (prefix, msg))
 
 
 def load_first_names():
