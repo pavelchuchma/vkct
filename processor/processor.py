@@ -78,19 +78,32 @@ CategoryInput = namedtuple("CategoryInput",
                            "file_name sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col, is_alternative")
 Config = namedtuple("Config", "year, categories")
 
-parsePosition = ParsePosition
+
+class ParsePosition:
+    def __init__(self):
+        self.file = None
+        self.sheet = None
+        self.row = None
+
+
+parsePosition = ParsePosition()
 
 
 def main():
     config = load_config('config2020.xlsx')
 
+    info('Loading results...')
     read_results(config)
+    info('Counting results...')
     category_sum_results = extract_summary_results(config)
     complete_summary_results(category_sum_results)
 
+    info('Checking names...')
     check_names(category_sum_results)
+    info('Writing output...')
     writer = ResultWriter(config, category_sum_results)
     writer.write()
+    info('Done.')
     pass
 
 
