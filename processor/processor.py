@@ -1,6 +1,6 @@
 # coding: utf-8
-from collections import namedtuple
 import difflib
+from collections import namedtuple
 
 from openpyxl import load_workbook
 
@@ -73,7 +73,6 @@ class Category:
         return u'%s (%s a %s)' % (self.name, self.min_year, self.max_year)
 
 
-ParsePosition = namedtuple("ParsePosition", "file, sheet, row")
 CategoryInput = namedtuple("CategoryInput",
                            "file_name sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col, is_alternative")
 Config = namedtuple("Config", "year, categories")
@@ -90,7 +89,7 @@ parsePosition = ParsePosition()
 
 
 def main():
-    config = load_config('config2020.xlsx')
+    config = load_config('config2021.xlsx')
 
     info('Loading results...')
     read_results(config)
@@ -110,10 +109,10 @@ def main():
 def check_names(category_sum_results):
     for cat_results in category_sum_results:
         for i in range(len(cat_results.personal_results)):
-            for j in range(i+1,len(cat_results.personal_results)):
+            for j in range(i + 1, len(cat_results.personal_results)):
                 pi = cat_results.personal_results[i]
                 pj = cat_results.personal_results[j]
-                ratio = difflib.SequenceMatcher(a=pi.person.name, b=pj.person.name).ratio()
+                ratio = get_names_matching_ratio(pi.person.name, pj.person.name)
                 if ratio > 0.8:
                     warning("Similar names in category '%s': '%s(%d) [%s]' ~ '%s(%d) [%s]' (%f)"
                             % (cat_results.category.name,
@@ -121,6 +120,20 @@ def check_names(category_sum_results):
                                pj.person.name, pj.person.birth_year, get_race_index_list(pj), ratio))
                 pass
         pass
+
+
+def get_names_matching_ratio(name_a, name_b):
+    parts_a = name_a.split()
+
+    res = 0
+    if len(parts_a) < len(name_b.split()):
+        return get_names_matching_ratio(name_b, name_a)
+    if len(parts_a) == 3:
+        res = max(
+            difflib.SequenceMatcher(a="%s %s" % (parts_a[0], parts_a[2]), b=name_b).ratio(),
+            difflib.SequenceMatcher(a="%s %s" % (parts_a[1], parts_a[2]), b=name_b).ratio()
+        )
+    return max(res, difflib.SequenceMatcher(a=name_a, b=name_b).ratio())
 
 
 def get_race_index_list(personal_results):
@@ -167,7 +180,7 @@ def extract_summary_results(config):
                                            cat.count_positions)
                 rr.half_points = res_line.is_alternative
 
-        cat_res.personal_results = res_map.values()
+        cat_res.personal_results = list(res_map.values())
     return category_sum_results
 
 
@@ -211,11 +224,11 @@ def complete_summary_results(category_sum_results):
         race_count = cat_results.category.get_race_count()
         # sort by first column if there is only one race
         if race_count == 1:
-            cat_results.personal_results.sort(key=lambda pr: pr.race_results[0].points, reverse=True)
+            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr: pr.race_results[0].points, reverse=True)
 
         # complete sum_position
         for i in range(1, race_count):
-            cat_results.personal_results.sort(key=lambda pr: pr.race_results[i].sum_points, reverse=True)
+            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr: pr.race_results[i].sum_points, reverse=True)
             sum_pos = 1
             last_sum_points = None
             last_sum_position = None
@@ -230,7 +243,7 @@ def complete_summary_results(category_sum_results):
 
 def load_config(config_file):
     wb = load_workbook(config_file)
-    ws = wb.get_sheet_by_name('Kategorie')
+    ws = wb['Kategorie']
 
     current_year = ws['B1'].value
     categories = []
@@ -250,7 +263,7 @@ def load_config(config_file):
 
 
 def load_category_input_config(wb, category_name):
-    ws = wb.get_sheet_by_name(category_name)
+    ws = wb[category_name]
 
     input_configs = []
     row = 2
@@ -283,7 +296,7 @@ def read_result_sheet(file_name, sheet_name, first_row, name_col, name2_col, tea
                       category):
     wb = load_workbook(file_name)
     try:
-        ws = wb.get_sheet_by_name(sheet_name)
+        ws = wb[sheet_name]
     except Exception:
         error("Failed to get sheet '%s' from %s" % (sheet_name, file_name))
         raise
@@ -325,8 +338,8 @@ def has_approved_value(cell):
 def create_normalized_result_line(name, team, birth_year, approved_birth_year, pos, is_alternative, category):
     n_name = normalize_name(name)
 
-    birth_year = to_long(birth_year)
-    if not isinstance(birth_year, long):
+    birth_year = to_int(birth_year)
+    if not isinstance(birth_year, int):
         warning("Birth year '%s' of %s is not a number" % (birth_year, name))
     elif birth_year < category.min_year or birth_year > category.max_year:
         if not approved_birth_year:
@@ -335,25 +348,25 @@ def create_normalized_result_line(name, team, birth_year, approved_birth_year, p
                 #      % (name, birth_year, category.name, category.min_year, category.max_year))
                 return None
             else:
-                warning("Person '%s' (%d) is out of category age range %s (%d-%d)"
+                warning("Person '%s' (%d) is out of category age range %s (%d-%d). If you are sure, then make input field underlined, bold & italic."
                         % (name, birth_year, category.name, category.min_year, category.max_year))
 
-    n_pos = to_long(pos)
-    if not isinstance(n_pos, long) and n_pos not in DNF_ACRONYMS:
+    n_pos = to_int(pos)
+    if not isinstance(n_pos, int) and n_pos not in DNF_ACRONYMS:
         info("Position '%s' is not a number! DNF '%s'!" % (n_pos, n_name))
         n_pos = 'DNF'
 
     return ResultLine(Person(n_name, team, birth_year), n_pos, is_alternative)
 
 
-def to_long(n):
-    if isinstance(n, long):
+def to_int(n):
+    if isinstance(n, int):
         return n
-    if isinstance(n, unicode):
+    if isinstance(n, str):
         if n.isdecimal():
-            return long(n)
+            return int(n)
         if len(n) > 1 and n[-1] == '.' and n[:-1].isdecimal():
-            return long(n[:-1])
+            return int(n[:-1])
     return n
 
 
@@ -380,9 +393,13 @@ def normalize_name(src):
             return "%s %s %s" % (n1, n2, n3)
         if n1 not in first_names and n2 in first_names and n3 in first_names:
             return "%s %s %s" % (n2, n3, n1)
-    else:
-        error("Unexpected name format, 2 parts expected: '%s'" % src)
-        return src
+        if "%s_%s_%s" % (n1, n2, n3) in first_names:
+            return "%s %s %s" % (n1, n2, n3)
+        if "%s_%s_%s" % (n2, n3, n1) in first_names:
+            return "%s %s %s" % (n2, n3, n1)
+
+    error("Unexpected name format, 2 parts expected: '%s'" % src)
+    return src
 
 
 def info(msg):
@@ -406,8 +423,8 @@ def message(prefix, msg):
 
 def load_first_names():
     res = {""}
-    for l in open('firstNames.txt').read().split():
-        res.add(l.decode('utf-8'))
+    for l in open('firstNames.txt', encoding="utf8").read().split():
+        res.add(l)
     return res
 
 

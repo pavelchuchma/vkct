@@ -1,6 +1,7 @@
 import os
 
 from openpyxl import load_workbook
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 class ResultWriter:
@@ -66,4 +67,7 @@ class ResultWriter:
                 n.alignment = src.alignment.copy()
 
         ws.freeze_panes = ws.cell(row=7, column=5)
-        ws.print_area = 'B2:Z%d' % (line_count + 6)
+        ws.print_area = 'B2:R%d' % (line_count + 6)
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.page_setup.fitToHeight = False
+        Worksheet.set_printer_settings(ws, paper_size=Worksheet.PAPERSIZE_A4, orientation=Worksheet.ORIENTATION_LANDSCAPE)
