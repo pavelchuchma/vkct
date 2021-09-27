@@ -228,7 +228,7 @@ def complete_summary_results(category_sum_results):
 
         # complete sum_position
         for i in range(1, race_count):
-            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr: pr.race_results[i].sum_points, reverse=True)
+            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr: get_sum_points(pr.race_results[i].sum_points), reverse=True)
             sum_pos = 1
             last_sum_points = None
             last_sum_position = None
@@ -239,6 +239,12 @@ def complete_summary_results(category_sum_results):
                     last_sum_points = pr.race_results[i].sum_points
                     pr.race_results[i].sum_position = last_sum_position = sum_pos
                 sum_pos = sum_pos + 1
+
+
+def get_sum_points(sum_points):
+    if sum_points is None:
+        return -1
+    return sum_points
 
 
 def load_config(config_file):
