@@ -70,7 +70,7 @@ class Category:
             return u'%s (%s a mladší)' % (self.name, self.min_year)
         if self.max_age == 100:
             return u'%s (%s a starší)' % (self.name, self.max_year)
-        return u'%s (%s a %s)' % (self.name, self.min_year, self.max_year)
+        return u'%s (%s - %s)' % (self.name, self.min_year, self.max_year)
 
 
 CategoryInput = namedtuple("CategoryInput",
@@ -89,7 +89,7 @@ parsePosition = ParsePosition()
 
 
 def main():
-    config = load_config('config2021.xlsx')
+    config = load_config('config2022.xlsx')
 
     info('Loading results...')
     read_results(config)

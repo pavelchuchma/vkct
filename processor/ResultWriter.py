@@ -1,10 +1,15 @@
 import os
 
 from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 
 class ResultWriter:
+    RACE_COUNT = 7
+    FIRST_OUTPUT_WRITE_ROW = 8
+    RESULT_COLUMN_COUNT = 3 + 2 + 4 * (RACE_COUNT - 1)
+
     def __init__(self, config, category_sum_results):
         self.config = config
         self.category_sum_results = category_sum_results
@@ -23,7 +28,7 @@ class ResultWriter:
             self.prepare_sheet(cat_results.category.name, self.config.year, cat_results.category.get_title(), len(cat_results.personal_results))
 
             ws = self.wb.get_sheet_by_name(cat_results.category.name)
-            row = 7
+            row = self.FIRST_OUTPUT_WRITE_ROW
             for pr in cat_results.personal_results:
                 ws.cell(row=row, column=2).value = pr.person.name
                 ws.cell(row=row, column=3).value = pr.person.team
@@ -53,21 +58,23 @@ class ResultWriter:
             points_cell.value = race_result.points
 
     def prepare_sheet(self, cat_name, year, cat_title, line_count):
+        last_output_column = self.RESULT_COLUMN_COUNT + 1
+
         ws = self.wb.copy_worksheet(self.template_sheet)
         ws.title = cat_name
         ws.cell(row=2, column=2).value = "%s %d" % (ws.cell(row=2, column=2).value, year)
         ws.cell(row=3, column=2).value = cat_title
-        for col in range(2, 27):
-            src = ws.cell(row=7, column=col)
-            for row in range(8, 7 + line_count):
+        for col in range(2, last_output_column + 1):
+            src = ws.cell(row=self.FIRST_OUTPUT_WRITE_ROW, column=col)
+            for row in range(self.FIRST_OUTPUT_WRITE_ROW + 1, self.FIRST_OUTPUT_WRITE_ROW + line_count):
                 n = ws.cell(row=row, column=col)
                 n.border = src.border.copy()
                 n.fill = src.fill.copy()
                 n.font = src.font.copy()
                 n.alignment = src.alignment.copy()
 
-        ws.freeze_panes = ws.cell(row=7, column=5)
-        ws.print_area = 'B2:R%d' % (line_count + 6)
+        ws.freeze_panes = ws.cell(row=self.FIRST_OUTPUT_WRITE_ROW, column=5)
+        ws.print_area = f'B2:{get_column_letter(last_output_column)}{line_count - 1 + self.FIRST_OUTPUT_WRITE_ROW:d}'
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.page_setup.fitToHeight = False
         Worksheet.set_printer_settings(ws, paper_size=Worksheet.PAPERSIZE_A4, orientation=Worksheet.ORIENTATION_LANDSCAPE)
