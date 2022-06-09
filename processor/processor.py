@@ -54,7 +54,7 @@ class Category:
         self.max_age = max_age
         self.count_positions = count_positions
         self.inputs = inputs
-        self.results = []  # ResultLine[]
+        self.results = list[ResultLine]()
         self.min_year = current_year - max_age
         self.max_year = current_year - min_age
 
@@ -93,6 +93,8 @@ def main():
 
     info('Loading results...')
     read_results(config)
+    info('Filling missing birth years...')
+    fill_missing_birth_years(config)
     info('Counting results...')
     category_sum_results = extract_summary_results(config)
     complete_summary_results(category_sum_results)
@@ -106,6 +108,24 @@ def main():
     pass
 
 
+def fill_missing_birth_years(config):
+    for cat in config.categories:
+        # build map of birth years
+        birth_years = dict[str, Person]()
+        for res in cat.results:
+            for resLine in res:
+                p = resLine.person
+                if p.birth_year is not None and p.name not in birth_years:
+                    birth_years[p.name] = p.birth_year
+
+        # fill missing birth years
+        for res in cat.results:
+            for resLine in res:
+                p = resLine.person
+                if p.birth_year is None and p.name in birth_years:
+                    p.birth_year = birth_years[p.name]
+
+
 def check_names(category_sum_results):
     for cat_results in category_sum_results:
         for i in range(len(cat_results.personal_results)):
@@ -114,7 +134,7 @@ def check_names(category_sum_results):
                 pj = cat_results.personal_results[j]
                 ratio = get_names_matching_ratio(pi.person.name, pj.person.name)
                 if ratio > 0.8:
-                    warning("Similar names in category '%s': '%s(%d) [%s]' ~ '%s(%d) [%s]' (%f)"
+                    warning("Similar names in category '%s': '%s(%s) [%s]' ~ '%s(%s) [%s]' (%f)"
                             % (cat_results.category.name,
                                pi.person.name, pi.person.birth_year, get_race_index_list(pi),
                                pj.person.name, pj.person.birth_year, get_race_index_list(pj), ratio))
