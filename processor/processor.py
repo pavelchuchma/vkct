@@ -354,7 +354,38 @@ def read_result_sheet(file_name, sheet_name, first_row, name_col, name2_col, tea
         row = row + 1
 
     parsePosition.file = None
+    validate_positions(lines, sheet_name, file_name, is_alternative)
     return lines
+
+
+def validate_positions(lines: list[ResultLine], sheet_name, file_name, is_alternative: bool):
+    all_are_first = True
+    for ln in lines:
+        if not ln.position or ln.position in DNF_ACRONYMS:
+            continue
+        if ln.position and ln.position != 1:
+            all_are_first = False
+            break
+
+    if all_are_first:
+        # all are first, nothing to check
+        return
+
+    pos_dir = dict()
+    # verify duplicates
+    for ln in lines:
+        if not ln.position or ln.position in DNF_ACRONYMS:
+            continue
+        if ln.position in pos_dir.keys():
+            error("Non-unique position '%s' in sheet '%s' of %s. " % (ln.position, sheet_name, file_name))
+        else:
+            pos_dir[ln.position] = ln
+
+    if not is_alternative:
+        # check missing positions
+        for i in range(1, len(pos_dir) + 1):
+            if i not in pos_dir.keys():
+                error("Missing position '%s' in sheet '%s' of %s. " % (i, sheet_name, file_name))
 
 
 def has_approved_value(cell):
