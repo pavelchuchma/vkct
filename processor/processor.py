@@ -367,6 +367,8 @@ def create_normalized_result_line(name, team, birth_year, approved_birth_year, p
     birth_year = to_int(birth_year)
     if not isinstance(birth_year, int):
         warning("Birth year '%s' of %s is not a number" % (birth_year, name))
+    elif birth_year == -1:
+        birth_year = None
     elif birth_year < category.min_year or birth_year > category.max_year:
         if not approved_birth_year:
             if is_alternative:
