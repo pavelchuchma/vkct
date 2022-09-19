@@ -249,8 +249,9 @@ def extract_summary_results(config):
                 pr = res_map.get(key)
                 if pr is None:
                     res_map[key] = pr = PersonalResults(res_line.person, cat.get_race_count())
-                elif pr.person.team is None and pr.person.team is not None:
-                    pr.person = Person(pr.person.name, pr.person.team, pr.person.birth_year)
+                elif pr.person.team is None and res_line.person.team is not None:
+                    # fix missing team if present
+                    pr.person = Person(pr.person.name, res_line.person.team, pr.person.birth_year)
 
                 rr = pr.race_results[race_idx]
                 rr.position = res_line.position
