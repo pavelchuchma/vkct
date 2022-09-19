@@ -1,5 +1,6 @@
 # coding: utf-8
 import difflib
+import re
 from collections import namedtuple
 
 from openpyxl import load_workbook
@@ -17,10 +18,17 @@ class Person:
         return ("%s@%s" % (self.name, self.birth_year)).encode('utf-8')
 
 
+class PersonForCheck:
+    def __init__(self, person: Person):
+        self.person = person
+        self.sourceYears = list[str]()
+
+
 class ResultLine:
-    def __init__(self, person, position, is_alternative):
+    def __init__(self, person, position, approved_pos, is_alternative):
         self.person = person
         self.position = position
+        self.approved_pos = approved_pos
         self.is_alternative = is_alternative
 
 
@@ -54,7 +62,7 @@ class Category:
         self.max_age = max_age
         self.count_positions = count_positions
         self.inputs = inputs
-        self.results = list[ResultLine]()
+        self.results = list[list[ResultLine]]()
         self.min_year = current_year - max_age
         self.max_year = current_year - min_age
 
@@ -89,23 +97,74 @@ parsePosition = ParsePosition()
 
 
 def main():
-    config = load_config('config2022.xlsx')
+    process_results('config2022.xlsx')
+    # build_people_list('configValidator.xlsx')
+    pass
 
+
+def build_people_list(validator_config_file):
+    validation_config = load_config(validator_config_file)
+    info('Loading old results...')
+    read_results(validation_config, False)
+
+    info('Building people dir...')
+    people_dir = dict[str, PersonForCheck]()
+    for category in validation_config.categories:
+        sourceYears = build_input_year_list(category)
+
+        for i in range(len(category.results)):
+            resultList = category.results[i]
+            for resLine in resultList:
+                p = resLine.person
+                existing = people_dir.get(p.get_key())
+                if not existing:
+                    existing = PersonForCheck(p)
+                    people_dir[p.get_key()] = existing
+                existing.sourceYears.append(sourceYears[i])
+
+    info('Verifying people dir...')
+    people_list = list(people_dir.values())
+    for i in range(len(people_list)):
+        pi = people_list[i]
+        if not pi.person.birth_year:
+            continue
+        for j in range(i + 1, len(people_list)):
+            pj = people_list[j]
+            if not pj.person.birth_year or abs(pi.person.birth_year - pj.person.birth_year) > 5:
+                # ignore too big differences
+                continue
+            ratio = get_names_matching_ratio(pi.person.name, pj.person.name)
+            if ratio > 0.9:
+                warning("Similar names in old results: '%s(%s) [%s]' ~ '%s(%s) [%s]' (%f)"
+                        % (pi.person.name, pi.person.birth_year, ', '.join(pi.sourceYears),
+                           pj.person.name, pj.person.birth_year, ', '.join(pj.sourceYears), ratio))
+
+
+def build_input_year_list(category):
+    inputYears = list[str]()
+    for i in category.inputs:
+        m = re.match(r'.*\\(\d{4})\\', i.file_name)
+        if not m or not m.group(1):
+            error("Failed to extract year from input file path: '%s'" % i.file_name)
+        inputYears.append(m.group(1))
+    return inputYears
+
+
+def process_results(config_file):
+    config = load_config(config_file)
     info('Loading results...')
-    read_results(config)
+    read_results(config, True)
     info('Filling missing birth years...')
     fill_missing_birth_years(config)
     info('Counting results...')
     category_sum_results = extract_summary_results(config)
     complete_summary_results(category_sum_results)
-
     info('Checking names...')
     check_names(category_sum_results)
     info('Writing output...')
     writer = ResultWriter(config, category_sum_results)
     writer.write()
     info('Done.')
-    pass
 
 
 def fill_missing_birth_years(config):
@@ -164,11 +223,11 @@ def get_race_index_list(personal_results):
     return ', '.join(result)
 
 
-def read_results(config):
+def read_results(config, validate_values: bool):
     for cat in config.categories:
         for i in cat.inputs:
             res = read_result_sheet(i.file_name, i.sheet_name, i.first_row, i.name_col, i.name2_col, i.team_col,
-                                    i.birth_year_col, i.pos_col, i.is_alternative, cat)
+                                    i.birth_year_col, i.pos_col, i.is_alternative, cat, validate_values)
             cat.results.append(res)
 
 
@@ -318,8 +377,7 @@ def get_column_index(col_name):
 
 
 def read_result_sheet(file_name, sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col,
-                      is_alternative,
-                      category):
+                      is_alternative, category, validate_values: bool):
     wb = load_workbook(file_name)
     try:
         ws = wb[sheet_name]
@@ -342,19 +400,21 @@ def read_result_sheet(file_name, sheet_name, first_row, name_col, name2_col, tea
             name_val = name_val + ' ' + ws.cell(row=row, column=name2_col).value
 
         birth_year_cell = ws.cell(row=row, column=birth_year_col)
+        position_cell = ws.cell(row=row, column=pos_col)
         line = create_normalized_result_line(
             name_val,
             ws.cell(row=row, column=team_col).value,
             birth_year_cell.value, has_approved_value(birth_year_cell),
-            ws.cell(row=row, column=pos_col).value,
-            is_alternative, category)
+            position_cell.value, has_approved_value(position_cell),
+            is_alternative, category, validate_values)
 
         if line is not None:
             lines.append(line)
         row = row + 1
 
     parsePosition.file = None
-    validate_positions(lines, sheet_name, file_name, is_alternative)
+    if validate_values:
+        validate_positions(lines, sheet_name, file_name, is_alternative)
     return lines
 
 
@@ -376,7 +436,7 @@ def validate_positions(lines: list[ResultLine], sheet_name, file_name, is_altern
     for ln in lines:
         if not ln.position or ln.position in DNF_ACRONYMS:
             continue
-        if ln.position in pos_dir.keys():
+        if not ln.approved_pos and ln.position in pos_dir.keys():
             error("Non-unique position '%s' in sheet '%s' of %s. " % (ln.position, sheet_name, file_name))
         else:
             pos_dir[ln.position] = ln
@@ -392,7 +452,7 @@ def has_approved_value(cell):
     return cell.font.b and cell.font.i and cell.font.u == 'single'
 
 
-def create_normalized_result_line(name, team, birth_year, approved_birth_year, pos, is_alternative, category):
+def create_normalized_result_line(name, team, birth_year, approved_birth_year, pos, approved_pos, is_alternative, category, validate_values: bool):
     n_name = normalize_name(name)
 
     birth_year = to_int(birth_year)
@@ -400,7 +460,7 @@ def create_normalized_result_line(name, team, birth_year, approved_birth_year, p
         warning("Birth year '%s' of %s is not a number" % (birth_year, name))
     elif birth_year == -1:
         birth_year = None
-    elif birth_year < category.min_year or birth_year > category.max_year:
+    elif validate_values and (birth_year < category.min_year or birth_year > category.max_year):
         if not approved_birth_year:
             if is_alternative:
                 # info("Alternative result of '%s' (%d) is out of category age range %s (%d-%d). Skipping."
@@ -415,7 +475,7 @@ def create_normalized_result_line(name, team, birth_year, approved_birth_year, p
         info("Position '%s' is not a number! DNF '%s'!" % (n_pos, n_name))
         n_pos = 'DNF'
 
-    return ResultLine(Person(n_name, team, birth_year), n_pos, is_alternative)
+    return ResultLine(Person(n_name, team, birth_year), n_pos, approved_pos, is_alternative)
 
 
 def to_int(n):
