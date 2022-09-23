@@ -39,12 +39,13 @@ class RaceResult:
         self.sum_points = None
         self.sum_position = None
         self.half_points = False
+        self.ignored_in_summary = False
 
 
 class PersonalResults:
     def __init__(self, person, race_count):
         self.person = person
-        self.race_results = []
+        self.race_results = list[RaceResult]()
         for i in range(race_count):
             self.race_results.append(RaceResult())
 
@@ -83,7 +84,7 @@ class Category:
 
 CategoryInput = namedtuple("CategoryInput",
                            "file_name sheet_name, first_row, name_col, name2_col, team_col, birth_year_col, pos_col, is_alternative")
-Config = namedtuple("Config", "year, categories")
+Config = namedtuple("Config", "year, max_race_count, categories")
 
 
 class ParsePosition:
@@ -158,7 +159,7 @@ def process_results(config_file):
     fill_missing_birth_years(config)
     info('Counting results...')
     category_sum_results = extract_summary_results(config)
-    complete_summary_results(category_sum_results)
+    complete_summary_results(category_sum_results, config.max_race_count)
     info('Checking names...')
     check_names(category_sum_results)
     info('Writing output...')
@@ -287,28 +288,44 @@ def compute_points(people_count, position, half_points, count_positions):
     return p
 
 
-def complete_summary_results(category_sum_results):
+def mark_ignored_results(race_results: list[RaceResult], max_race_count: int):
+    sorted_results = sorted(race_results, key=lambda rr_: get_nullable_as_int(rr_.points), reverse=True)[max_race_count:]
+    for rr in sorted_results:
+        rr.ignored_in_summary = True
+
+
+def sum_race_results(race_results: list[RaceResult], max_race_count: int):
+    sorted_results = sorted(race_results, key=lambda rr_: get_nullable_as_int(rr_.points), reverse=True)[:max_race_count]
+    res = None
+    for rr in sorted_results:
+        if rr.points is not None:
+            res = rr.points if res is None else res + rr.points
+    return res
+
+
+def complete_summary_results(category_sum_results, max_race_count: int):
     for cat_results in category_sum_results:
         # compute sum_points
         if len(cat_results.personal_results) == 0:
             continue
 
         for pr in cat_results.personal_results:
-            sum = None
-            for rr in pr.race_results:
-                if rr.points is not None:
-                    sum = rr.points if sum is None else sum + rr.points
-                if sum is not None:
-                    rr.sum_points = sum
+            if cat_results.category.count_positions:
+                mark_ignored_results(pr.race_results, max_race_count)
+
+            for i in range(0, len(pr.race_results)):
+                # don't limit max race count for categories without counting of positions
+                max_ = max_race_count if cat_results.category.count_positions else i + 1
+                pr.race_results[i].sum_points = sum_race_results(pr.race_results[:i + 1], max_)
 
         race_count = cat_results.category.get_race_count()
         # sort by first column if there is only one race
         if race_count == 1:
-            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr: pr.race_results[0].points, reverse=True)
+            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr_: pr_.race_results[0].points, reverse=True)
 
         # complete sum_position
         for i in range(1, race_count):
-            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr: get_sum_points(pr.race_results[i].sum_points), reverse=True)
+            cat_results.personal_results = sorted(cat_results.personal_results, key=lambda pr_: get_nullable_as_int(pr_.race_results[i].sum_points), reverse=True)
             sum_pos = 1
             last_sum_points = None
             last_sum_position = None
@@ -321,7 +338,7 @@ def complete_summary_results(category_sum_results):
                 sum_pos = sum_pos + 1
 
 
-def get_sum_points(sum_points):
+def get_nullable_as_int(sum_points):
     if sum_points is None:
         return -1
     return sum_points
@@ -332,8 +349,9 @@ def load_config(config_file):
     ws = wb['Kategorie']
 
     current_year = ws['B1'].value
+    max_race_count = ws['B2'].value
     categories = []
-    row = 4
+    row = 5
     while ws.cell(row=row, column=1).value is not None:
         cat_name = ws.cell(row=row, column=1).value
         category = Category(cat_name,
@@ -345,7 +363,7 @@ def load_config(config_file):
         categories.append(category)
         row = row + 1
 
-    return Config(current_year, categories)
+    return Config(current_year, max_race_count, categories)
 
 
 def load_category_input_config(wb, category_name):

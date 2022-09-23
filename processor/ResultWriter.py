@@ -3,6 +3,7 @@ import os
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
+from copy import copy
 
 
 class ResultWriter:
@@ -56,6 +57,12 @@ class ResultWriter:
         if race_result.position is not None:
             pos_cell.value = race_result.position if not race_result.half_points else "%s*" % race_result.position
             points_cell.value = race_result.points
+            # highlight ignored results
+            if race_result.ignored_in_summary:
+                font = copy(points_cell.font)
+                font.italic = True
+                font.color = 'FF808080'
+                points_cell.font = font
 
     def prepare_sheet(self, cat_name, year, cat_title, line_count):
         last_output_column = self.RESULT_COLUMN_COUNT + 1
