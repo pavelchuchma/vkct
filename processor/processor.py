@@ -98,7 +98,7 @@ parsePosition = ParsePosition()
 
 
 def main():
-    process_results('config2022.xlsx')
+    process_results('config2023.xlsx')
     # build_people_list('configValidator.xlsx')
     pass
 
