@@ -7,7 +7,7 @@ from copy import copy
 
 
 class ResultWriter:
-    RACE_COUNT = 7
+    RACE_COUNT = 5
     FIRST_OUTPUT_WRITE_ROW = 8
     RESULT_COLUMN_COUNT = 3 + 2 + 4 * (RACE_COUNT - 1)
 
