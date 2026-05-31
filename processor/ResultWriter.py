@@ -1,9 +1,19 @@
 import os
+import shutil
+import subprocess
+import sys
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 from copy import copy
+
+SOFFICE_FALLBACK_PATHS = [
+    '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+    r'C:\Program Files\LibreOffice\program\soffice.exe',
+    '/usr/bin/soffice',
+    '/usr/local/bin/soffice',
+]
 
 
 class ResultWriter:
@@ -51,6 +61,64 @@ class ResultWriter:
         self.wb.remove_sheet(self.template_sheet)
         self.wb.save(self.outputFileName)
         self.wb.close()
+
+        self.export_pdf()
+
+    def export_pdf(self):
+        soffice = self._find_soffice()
+        if not soffice:
+            print("WARNING: 'soffice' (LibreOffice) not found — skipping PDF export. "
+                  "Set SOFFICE_BIN env var or install LibreOffice.", file=sys.stderr)
+            return
+
+        xlsx_path = os.path.abspath(self.outputFileName)
+        out_dir = os.path.dirname(xlsx_path) or '.'
+        intermediate_pdf = os.path.join(out_dir, "vysledky%s.pdf" % self.config.year)
+        target_pdf = os.path.join(out_dir, "VKCT %s.pdf" % self.config.year)
+
+        if os.path.exists(intermediate_pdf):
+            os.remove(intermediate_pdf)
+
+        user_install = "file://%s" % os.path.join(
+            os.path.expanduser("~"), ".cache", "lo_pdfexport_vkct"
+        )
+        cmd = [
+            soffice,
+            "--headless",
+            "-env:UserInstallation=%s" % user_install,
+            "--convert-to", "pdf:calc_pdf_Export",
+            "--outdir", out_dir,
+            xlsx_path,
+        ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        except (subprocess.TimeoutExpired, OSError) as e:
+            print("WARNING: PDF export failed: %s" % e, file=sys.stderr)
+            return
+
+        if result.returncode != 0 or not os.path.exists(intermediate_pdf):
+            print("WARNING: PDF export failed (exit=%d):\n%s\n%s"
+                  % (result.returncode, result.stdout, result.stderr), file=sys.stderr)
+            return
+
+        if os.path.exists(target_pdf):
+            os.remove(target_pdf)
+        os.rename(intermediate_pdf, target_pdf)
+        print("PDF exported: %s" % target_pdf)
+
+    @staticmethod
+    def _find_soffice():
+        env_bin = os.environ.get("SOFFICE_BIN")
+        if env_bin and os.path.exists(env_bin):
+            return env_bin
+        which = shutil.which("soffice")
+        if which:
+            return which
+        for path in SOFFICE_FALLBACK_PATHS:
+            if os.path.exists(path):
+                return path
+        return None
 
     @staticmethod
     def write_position_and_points(pos_cell, points_cell, race_result):
